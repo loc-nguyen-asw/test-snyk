@@ -303,7 +303,7 @@ jobs:
             echo ""
             echo "=== END SBOM XML PREVIEW ==="
           else
-            echo "❌ SBOM JSON file not found, creating minimal XML..."
+            echo "❌ SBOM JSON file not found, creating minimal XML...."
             
             # Create minimal XML if no JSON
             cat > sbom.xml << 'EOF'
