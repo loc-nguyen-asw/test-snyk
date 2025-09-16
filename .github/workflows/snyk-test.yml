@@ -34,7 +34,7 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high --sarif-file-output=snyk.sarif --json-file-output=snyk-results.json
+          args: --severity-threshold=high --sarif-file-output=snyk.sarif --json-file-output=snyk-results.json --exit-code=0
 
       - name: Upload Snyk results to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
@@ -165,9 +165,11 @@ jobs:
               });
             }
 
-      - name: Fail if vulnerabilities found
-        if: always() && steps.snyk-scan.outcome == 'failure'
+      - name: Check for vulnerabilities and fail if found
+        if: always() && steps.snyk-comment.outputs.vuln_count != '' && steps.snyk-comment.outputs.vuln_count != '0'
         run: |
           echo "🚫 BLOCKING PR: High-severity vulnerabilities detected by Snyk"
+          echo "Vulnerabilities found: ${{ steps.snyk-comment.outputs.vuln_count }}"
           echo "Please review and fix the security issues before merging."
+          echo "Check the PR comment for detailed information."
           exit 1
