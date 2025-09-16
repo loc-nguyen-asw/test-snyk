@@ -9,7 +9,7 @@ export class ProviderService {
       where: { name: payload.name },
     });
     if (existingProvider)
-      throw new BadRequestException('', 'Tên nhà cung cấp đã tồn tại.');
+      throw new BadRequestException('', 'Tên nhà cung cấp đã tồn tại');
 
     await Provider.create({ ...payload }).save();
     return { message: 'Tạo nhà cung cấp thành công.' };
