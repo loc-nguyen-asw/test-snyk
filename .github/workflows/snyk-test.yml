@@ -94,10 +94,10 @@ jobs:
             
             # Add each vulnerability as a table row
             jq -r '.vulnerabilities[]? | 
-              "| " + (.packageName // .name // "Unknown") + 
+              "| " + (.packageName // .name // .package // "Unknown") + 
               " | " + (.severity // "unknown") + 
-              " | " + ((.cvssScore // .score // "N/A") | tostring) + 
-              " | " + ((.description // .title // "No description") | gsub("\n"; " ") | .[0:100]) + 
+              " | " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
+              " | " + ((.description // .title // .summary // "No description") | gsub("\n"; " ") | .[0:100]) + 
               " | " + (if .upgradePath and (.upgradePath | length) > 0 then "✅ " + (.upgradePath[]? | select(. != null) | .) else "❌ No fix" end) + 
               " |"' snyk-results.json > temp_comment.txt 2>/dev/null || echo "| Error parsing vulnerabilities | | | | |" > temp_comment.txt
             
@@ -111,13 +111,13 @@ jobs:
             
             # Add detailed info for each vulnerability
             jq -r '.vulnerabilities[]? | 
-              "#### 🔴 " + (.title // .name // "Unknown Vulnerability") + 
-              "\n- **Package:** " + (.packageName // .name // "Unknown") + 
+              "#### 🔴 " + (.title // .name // .id // "Unknown Vulnerability") + 
+              "\n- **Package:** " + (.packageName // .name // .package // "Unknown") + 
               "\n- **Severity:** " + (.severity // "unknown") + 
-              "\n- **CVSS Score:** " + ((.cvssScore // .score // "N/A") | tostring) + 
-              "\n- **Description:** " + (.description // .title // "No description available") + 
+              "\n- **CVSS Score:** " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
+              "\n- **Description:** " + (.description // .title // .summary // "No description available") + 
               "\n- **Fix:** " + (if .upgradePath and (.upgradePath | length) > 0 then .upgradePath[]? | select(. != null) | . else "No fix available" end) + 
-              "\n- **More Info:** " + (.url // "No additional info") + 
+              "\n- **More Info:** " + (.url // .link // "No additional info") + 
               "\n"' snyk-results.json > temp_detailed.txt 2>/dev/null || echo "Error parsing detailed vulnerability information" > temp_detailed.txt
             
             COMMENT_BODY+=$(cat temp_detailed.txt 2>/dev/null || echo "")
@@ -165,41 +165,15 @@ jobs:
               const comment = fs.readFileSync('${{ steps.snyk-comment.outputs.comment_file }}', 'utf8');
               console.log('Comment content length:', comment.length);
               
-              console.log('Fetching existing comments...');
-              // Find existing Snyk comment
-              const { data: comments } = await github.rest.issues.listComments({
+              console.log('Creating new comment...');
+              // Always create new comment
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
+                body: comment
               });
-              
-              console.log('Found', comments.length, 'existing comments');
-              
-              const existingComment = comments.find(comment => 
-                comment.user.type === 'Bot' && comment.body.includes('Snyk Security Scan Results')
-              );
-              
-              if (existingComment) {
-                console.log('Updating existing comment...');
-                // Update existing comment
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existingComment.id,
-                  body: comment
-                });
-                console.log('Comment updated successfully');
-              } else {
-                console.log('Creating new comment...');
-                // Create new comment
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  body: comment
-                });
-                console.log('Comment created successfully');
-              }
+              console.log('Comment created successfully');
             } catch (error) {
               console.error('Error posting comment:', error);
               throw error;
