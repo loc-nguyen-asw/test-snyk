@@ -41,8 +41,9 @@ jobs:
         with:
           sarif_file: snyk.sarif
 
-      - name: Parse Snyk results and log vulnerabilities
-        if: always()
+      - name: Parse Snyk results and create PR comment
+        if: always() && github.event_name == 'pull_request'
+        id: snyk-comment
         run: |
           echo "=== SNYK SECURITY SCAN RESULTS ==="
           if [ -f snyk-results.json ]; then
@@ -52,32 +53,117 @@ jobs:
             VULN_COUNT=$(cat snyk-results.json | jq '.vulnerabilities | length' 2>/dev/null || echo "0")
             echo "🔍 Found $VULN_COUNT vulnerabilities"
             
+            # Create PR comment content
+            COMMENT_BODY="## 🔒 Snyk Security Scan Results
+            
+            **Scan Status:** ${{ steps.snyk-scan.outcome == 'success' && '✅ PASSED' || '❌ FAILED' }}
+            **Vulnerabilities Found:** $VULN_COUNT
+            **Severity Threshold:** High
+            
+            "
+            
             if [ "$VULN_COUNT" -gt 0 ]; then
-              echo "⚠️  VULNERABILITIES DETECTED:"
-              echo "=================================="
+              COMMENT_BODY+="### ⚠️ High Severity Vulnerabilities Detected
               
-              # Log each vulnerability with details
+              | Package | Severity | CVSS | Description | Fix Available |
+              |---------|----------|------|-------------|---------------|
+              "
+              
+              # Add each vulnerability as a table row
               cat snyk-results.json | jq -r '.vulnerabilities[] | 
-                "🔴 " + .title + 
-                "\n   Package: " + .packageName + 
-                "\n   Severity: " + .severity + 
-                "\n   CVSS Score: " + (.cvssScore | tostring) + 
-                "\n   Description: " + .description + 
-                "\n   Fix: " + (.upgradePath[]? | select(. != null) | .) // "No fix available" + 
-                "\n   More info: " + .url + 
-                "\n   ----------------------------------------"' 2>/dev/null || echo "Error parsing vulnerability details"
+                "| " + .packageName + 
+                " | " + .severity + 
+                " | " + (.cvssScore | tostring) + 
+                " | " + (.description | gsub("\n"; " ")) + 
+                " | " + (if .upgradePath and (.upgradePath | length) > 0 then "✅ " + (.upgradePath[]? | select(. != null) | .) else "❌ No fix" end) + 
+                " |"' 2>/dev/null >> temp_comment.txt
               
-              echo "=================================="
-              echo "❌ Security scan FAILED - High severity vulnerabilities found!"
-              echo "Please fix the vulnerabilities above before merging this PR."
+              COMMENT_BODY+=$(cat temp_comment.txt 2>/dev/null || echo "")
+              rm -f temp_comment.txt
+              
+              COMMENT_BODY+="
+              
+              ### 📋 Detailed Information
+              "
+              
+              # Add detailed info for each vulnerability
+              cat snyk-results.json | jq -r '.vulnerabilities[] | 
+                "#### 🔴 " + .title + 
+                "\n- **Package:** " + .packageName + 
+                "\n- **Severity:** " + .severity + 
+                "\n- **CVSS Score:** " + (.cvssScore | tostring) + 
+                "\n- **Description:** " + .description + 
+                "\n- **Fix:** " + (if .upgradePath and (.upgradePath | length) > 0 then .upgradePath[]? | select(. != null) | . else "No fix available" end) + 
+                "\n- **More Info:** " + .url + 
+                "\n"' 2>/dev/null >> temp_detailed.txt
+              
+              COMMENT_BODY+=$(cat temp_detailed.txt 2>/dev/null || echo "")
+              rm -f temp_detailed.txt
+              
+              COMMENT_BODY+="
+              
+              ---
+              **🚫 This PR is blocked due to high-severity security vulnerabilities.**
+              Please fix the vulnerabilities above before merging this PR.
+              "
             else
-              echo "✅ No high-severity vulnerabilities found!"
+              COMMENT_BODY+="### ✅ No High Severity Vulnerabilities Found
+              
+              Great! No high-severity security vulnerabilities were detected in your dependencies.
+              "
             fi
+            
+            # Save comment to file for GitHub API
+            echo "$COMMENT_BODY" > snyk_comment.md
+            
+            # Set output for next step
+            echo "comment_file=snyk_comment.md" >> $GITHUB_OUTPUT
+            echo "vuln_count=$VULN_COUNT" >> $GITHUB_OUTPUT
+            
           else
             echo "❌ Snyk results file not found. Scan may have failed."
+            echo "comment_file=" >> $GITHUB_OUTPUT
+            echo "vuln_count=0" >> $GITHUB_OUTPUT
           fi
 
           echo "=== END SNYK RESULTS ==="
+
+      - name: Comment on PR with Snyk results
+        if: always() && github.event_name == 'pull_request' && steps.snyk-comment.outputs.comment_file != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const comment = fs.readFileSync('${{ steps.snyk-comment.outputs.comment_file }}', 'utf8');
+
+            // Find existing Snyk comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existingComment = comments.find(comment => 
+              comment.user.type === 'Bot' && comment.body.includes('Snyk Security Scan Results')
+            );
+
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
 
       - name: Fail if vulnerabilities found
         if: always() && steps.snyk-scan.outcome == 'failure'
