@@ -139,6 +139,14 @@ jobs:
           # Save comment to file for GitHub API
           echo "$COMMENT_BODY" > snyk_comment.md
 
+          # Debug: Show comment file content
+          echo "📝 Comment file created:"
+          echo "File size: $(wc -c < snyk_comment.md) bytes"
+          echo "First 500 characters:"
+          head -c 500 snyk_comment.md
+          echo ""
+          echo "=== END COMMENT PREVIEW ==="
+
           # Set output for next step
           echo "comment_file=snyk_comment.md" >> $GITHUB_OUTPUT
           echo "vuln_count=$VULN_COUNT" >> $GITHUB_OUTPUT
@@ -151,35 +159,50 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const comment = fs.readFileSync('${{ steps.snyk-comment.outputs.comment_file }}', 'utf8');
 
-            // Find existing Snyk comment
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existingComment = comments.find(comment => 
-              comment.user.type === 'Bot' && comment.body.includes('Snyk Security Scan Results')
-            );
-
-            if (existingComment) {
-              // Update existing comment
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: comment
-              });
-            } else {
-              // Create new comment
-              await github.rest.issues.createComment({
+            try {
+              console.log('Reading comment file...');
+              const comment = fs.readFileSync('${{ steps.snyk-comment.outputs.comment_file }}', 'utf8');
+              console.log('Comment content length:', comment.length);
+              
+              console.log('Fetching existing comments...');
+              // Find existing Snyk comment
+              const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: comment
               });
+              
+              console.log('Found', comments.length, 'existing comments');
+              
+              const existingComment = comments.find(comment => 
+                comment.user.type === 'Bot' && comment.body.includes('Snyk Security Scan Results')
+              );
+              
+              if (existingComment) {
+                console.log('Updating existing comment...');
+                // Update existing comment
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: comment
+                });
+                console.log('Comment updated successfully');
+              } else {
+                console.log('Creating new comment...');
+                // Create new comment
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: comment
+                });
+                console.log('Comment created successfully');
+              }
+            } catch (error) {
+              console.error('Error posting comment:', error);
+              throw error;
             }
 
       - name: Check for vulnerabilities and fail if found
