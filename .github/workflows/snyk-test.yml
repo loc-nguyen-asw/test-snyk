@@ -46,85 +46,94 @@ jobs:
         id: snyk-comment
         run: |
           echo "=== SNYK SECURITY SCAN RESULTS ==="
-          if [ -f snyk-results.json ]; then
-            echo "📊 Snyk scan completed. Parsing results..."
-            
-            # Check if vulnerabilities were found
-            VULN_COUNT=$(cat snyk-results.json | jq '.vulnerabilities | length' 2>/dev/null || echo "0")
-            echo "🔍 Found $VULN_COUNT vulnerabilities"
-            
-            # Create PR comment content
-            COMMENT_BODY="## 🔒 Snyk Security Scan Results
-            
-            **Scan Status:** ${{ steps.snyk-scan.outcome == 'success' && '✅ PASSED' || '❌ FAILED' }}
-            **Vulnerabilities Found:** $VULN_COUNT
-            **Severity Threshold:** High
-            
-            "
-            
-            if [ "$VULN_COUNT" -gt 0 ]; then
-              COMMENT_BODY+="### ⚠️ High Severity Vulnerabilities Detected
-              
-              | Package | Severity | CVSS | Description | Fix Available |
-              |---------|----------|------|-------------|---------------|
-              "
-              
-              # Add each vulnerability as a table row
-              cat snyk-results.json | jq -r '.vulnerabilities[] | 
-                "| " + .packageName + 
-                " | " + .severity + 
-                " | " + (.cvssScore | tostring) + 
-                " | " + (.description | gsub("\n"; " ")) + 
-                " | " + (if .upgradePath and (.upgradePath | length) > 0 then "✅ " + (.upgradePath[]? | select(. != null) | .) else "❌ No fix" end) + 
-                " |"' 2>/dev/null >> temp_comment.txt
-              
-              COMMENT_BODY+=$(cat temp_comment.txt 2>/dev/null || echo "")
-              rm -f temp_comment.txt
-              
-              COMMENT_BODY+="
-              
-              ### 📋 Detailed Information
-              "
-              
-              # Add detailed info for each vulnerability
-              cat snyk-results.json | jq -r '.vulnerabilities[] | 
-                "#### 🔴 " + .title + 
-                "\n- **Package:** " + .packageName + 
-                "\n- **Severity:** " + .severity + 
-                "\n- **CVSS Score:** " + (.cvssScore | tostring) + 
-                "\n- **Description:** " + .description + 
-                "\n- **Fix:** " + (if .upgradePath and (.upgradePath | length) > 0 then .upgradePath[]? | select(. != null) | . else "No fix available" end) + 
-                "\n- **More Info:** " + .url + 
-                "\n"' 2>/dev/null >> temp_detailed.txt
-              
-              COMMENT_BODY+=$(cat temp_detailed.txt 2>/dev/null || echo "")
-              rm -f temp_detailed.txt
-              
-              COMMENT_BODY+="
-              
-              ---
-              **🚫 This PR is blocked due to high-severity security vulnerabilities.**
-              Please fix the vulnerabilities above before merging this PR.
-              "
-            else
-              COMMENT_BODY+="### ✅ No High Severity Vulnerabilities Found
-              
-              Great! No high-severity security vulnerabilities were detected in your dependencies.
-              "
-            fi
-            
-            # Save comment to file for GitHub API
-            echo "$COMMENT_BODY" > snyk_comment.md
-            
-            # Set output for next step
-            echo "comment_file=snyk_comment.md" >> $GITHUB_OUTPUT
-            echo "vuln_count=$VULN_COUNT" >> $GITHUB_OUTPUT
-            
-          else
+
+          # Check if results file exists
+          if [ ! -f snyk-results.json ]; then
             echo "❌ Snyk results file not found. Scan may have failed."
             echo "comment_file=" >> $GITHUB_OUTPUT
             echo "vuln_count=0" >> $GITHUB_OUTPUT
+            echo "=== END SNYK RESULTS ==="
+            exit 0
           fi
+
+          echo "📊 Snyk scan completed. Parsing results..."
+
+          # Check if jq is available
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+
+          # Check if vulnerabilities were found
+          VULN_COUNT=$(jq '.vulnerabilities | length' snyk-results.json 2>/dev/null || echo "0")
+          echo "🔍 Found $VULN_COUNT vulnerabilities"
+
+          # Create PR comment content
+          COMMENT_BODY="## 🔒 Snyk Security Scan Results
+
+          **Scan Status:** ${{ steps.snyk-scan.outcome == 'success' && '✅ PASSED' || '❌ FAILED' }}
+          **Vulnerabilities Found:** $VULN_COUNT
+          **Severity Threshold:** High
+
+          "
+
+          if [ "$VULN_COUNT" -gt 0 ]; then
+            COMMENT_BODY+="### ⚠️ High Severity Vulnerabilities Detected
+
+            | Package | Severity | CVSS | Description | Fix Available |
+            |---------|----------|------|-------------|---------------|
+            "
+            
+            # Add each vulnerability as a table row
+            jq -r '.vulnerabilities[] | 
+              "| " + .packageName + 
+              " | " + .severity + 
+              " | " + (.cvssScore | tostring) + 
+              " | " + (.description | gsub("\n"; " ")) + 
+              " | " + (if .upgradePath and (.upgradePath | length) > 0 then "✅ " + (.upgradePath[]? | select(. != null) | .) else "❌ No fix" end) + 
+              " |"' snyk-results.json > temp_comment.txt 2>/dev/null || echo "| Error parsing vulnerabilities | | | | |" > temp_comment.txt
+            
+            COMMENT_BODY+=$(cat temp_comment.txt 2>/dev/null || echo "")
+            rm -f temp_comment.txt
+            
+            COMMENT_BODY+="
+
+            ### 📋 Detailed Information
+            "
+            
+            # Add detailed info for each vulnerability
+            jq -r '.vulnerabilities[] | 
+              "#### 🔴 " + .title + 
+              "\n- **Package:** " + .packageName + 
+              "\n- **Severity:** " + .severity + 
+              "\n- **CVSS Score:** " + (.cvssScore | tostring) + 
+              "\n- **Description:** " + .description + 
+              "\n- **Fix:** " + (if .upgradePath and (.upgradePath | length) > 0 then .upgradePath[]? | select(. != null) | . else "No fix available" end) + 
+              "\n- **More Info:** " + .url + 
+              "\n"' snyk-results.json > temp_detailed.txt 2>/dev/null || echo "Error parsing detailed vulnerability information" > temp_detailed.txt
+            
+            COMMENT_BODY+=$(cat temp_detailed.txt 2>/dev/null || echo "")
+            rm -f temp_detailed.txt
+            
+            COMMENT_BODY+="
+
+            ---
+            **🚫 This PR is blocked due to high-severity security vulnerabilities.**
+            Please fix the vulnerabilities above before merging this PR.
+            "
+          else
+            COMMENT_BODY+="### ✅ No High Severity Vulnerabilities Found
+
+            Great! No high-severity security vulnerabilities were detected in your dependencies.
+            "
+          fi
+
+          # Save comment to file for GitHub API
+          echo "$COMMENT_BODY" > snyk_comment.md
+
+          # Set output for next step
+          echo "comment_file=snyk_comment.md" >> $GITHUB_OUTPUT
+          echo "vuln_count=$VULN_COUNT" >> $GITHUB_OUTPUT
 
           echo "=== END SNYK RESULTS ==="
 
