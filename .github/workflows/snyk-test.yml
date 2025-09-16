@@ -96,15 +96,15 @@ jobs:
             |---------|----------|------|-------------|---------------|
             "
             
-            # Add each vulnerability as a table row - simplified parsing
+            # Add each vulnerability as a table row - using correct field names
             jq -r '
               if .vulnerabilities and (.vulnerabilities | length) > 0 then
                 .vulnerabilities[] | 
-                "| " + (.packageName // .name // .package // "Unknown") + 
+                "| " + (.moduleName // .packageName // "Unknown") + 
                 " | " + (.severity // "unknown") + 
-                " | " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
-                " | " + ((.description // .title // .summary // "No description") | gsub("\n"; " ") | .[0:100]) + 
-                " | " + (if .upgradePath and (.upgradePath | length) > 0 then "✅ " + (.upgradePath[]? | select(. != null) | .) else "❌ No fix" end) + 
+                " | " + ((.cvssScore // "N/A") | tostring) + 
+                " | " + ((.title // .description // "No description") | gsub("\n"; " ") | .[0:100]) + 
+                " | " + (if .fixedIn and (.fixedIn | length) > 0 then "✅ " + (.fixedIn[0]) else "❌ No fix" end) + 
                 " |"
               else
                 "| No vulnerabilities found | | | | |"
@@ -119,17 +119,17 @@ jobs:
             ### 📋 Detailed Information
             "
             
-            # Add detailed info for each vulnerability - simplified parsing
+            # Add detailed info for each vulnerability - using correct field names
             jq -r '
               if .vulnerabilities and (.vulnerabilities | length) > 0 then
                 .vulnerabilities[] | 
-                "#### 🔴 " + (.title // .name // .id // "Unknown Vulnerability") + 
-                "\n- **Package:** " + (.packageName // .name // .package // "Unknown") + 
+                "#### 🔴 " + (.title // .id // "Unknown Vulnerability") + 
+                "\n- **Package:** " + (.moduleName // .packageName // "Unknown") + 
                 "\n- **Severity:** " + (.severity // "unknown") + 
-                "\n- **CVSS Score:** " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
-                "\n- **Description:** " + (.description // .title // .summary // "No description available") + 
-                "\n- **Fix:** " + (if .upgradePath and (.upgradePath | length) > 0 then .upgradePath[]? | select(. != null) | . else "No fix available" end) + 
-                "\n- **More Info:** " + (.url // .link // "No additional info") + 
+                "\n- **CVSS Score:** " + ((.cvssScore // "N/A") | tostring) + 
+                "\n- **Description:** " + (.description // .title // "No description available") + 
+                "\n- **Fix:** " + (if .fixedIn and (.fixedIn | length) > 0 then .fixedIn[0] else "No fix available" end) + 
+                "\n- **More Info:** " + ((.references[0].url // "No additional info")) + 
                 "\n"
               else
                 "No detailed vulnerability information available"
