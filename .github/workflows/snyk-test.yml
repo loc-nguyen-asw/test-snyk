@@ -96,7 +96,7 @@ jobs:
             |---------|----------|------|-------------|---------------|
             "
             
-            # Add each vulnerability as a table row - using correct field names
+            # Add each vulnerability as a table row - using correct field names from Snyk API
             jq -r '
               if .vulnerabilities and (.vulnerabilities | length) > 0 then
                 .vulnerabilities[] | 
