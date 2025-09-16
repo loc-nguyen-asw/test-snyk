@@ -75,6 +75,10 @@ jobs:
           jq 'keys' snyk-results.json 2>/dev/null || echo "Failed to parse JSON keys"
           echo "📋 Vulnerabilities structure:"
           jq '.vulnerabilities[0] | keys' snyk-results.json 2>/dev/null || echo "No vulnerabilities or failed to parse"
+          echo "📋 Full JSON content (first 1000 chars):"
+          head -c 1000 snyk-results.json
+          echo ""
+          echo "=== END JSON DEBUG ==="
 
           # Create PR comment content
           COMMENT_BODY="## 🔒 Snyk Security Scan Results
@@ -92,14 +96,20 @@ jobs:
             |---------|----------|------|-------------|---------------|
             "
             
-            # Add each vulnerability as a table row
-            jq -r '.vulnerabilities[]? | 
-              "| " + (.packageName // .name // .package // "Unknown") + 
-              " | " + (.severity // "unknown") + 
-              " | " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
-              " | " + ((.description // .title // .summary // "No description") | gsub("\n"; " ") | .[0:100]) + 
-              " | " + (if .upgradePath and (.upgradePath | length) > 0 then "✅ " + (.upgradePath[]? | select(. != null) | .) else "❌ No fix" end) + 
-              " |"' snyk-results.json > temp_comment.txt 2>/dev/null || echo "| Error parsing vulnerabilities | | | | |" > temp_comment.txt
+            # Add each vulnerability as a table row - simplified parsing
+            jq -r '
+              if .vulnerabilities and (.vulnerabilities | length) > 0 then
+                .vulnerabilities[] | 
+                "| " + (.packageName // .name // .package // "Unknown") + 
+                " | " + (.severity // "unknown") + 
+                " | " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
+                " | " + ((.description // .title // .summary // "No description") | gsub("\n"; " ") | .[0:100]) + 
+                " | " + (if .upgradePath and (.upgradePath | length) > 0 then "✅ " + (.upgradePath[]? | select(. != null) | .) else "❌ No fix" end) + 
+                " |"
+              else
+                "| No vulnerabilities found | | | | |"
+              end
+            ' snyk-results.json > temp_comment.txt 2>/dev/null || echo "| Error parsing vulnerabilities | | | | |" > temp_comment.txt
             
             COMMENT_BODY+=$(cat temp_comment.txt 2>/dev/null || echo "")
             rm -f temp_comment.txt
@@ -109,16 +119,22 @@ jobs:
             ### 📋 Detailed Information
             "
             
-            # Add detailed info for each vulnerability
-            jq -r '.vulnerabilities[]? | 
-              "#### 🔴 " + (.title // .name // .id // "Unknown Vulnerability") + 
-              "\n- **Package:** " + (.packageName // .name // .package // "Unknown") + 
-              "\n- **Severity:** " + (.severity // "unknown") + 
-              "\n- **CVSS Score:** " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
-              "\n- **Description:** " + (.description // .title // .summary // "No description available") + 
-              "\n- **Fix:** " + (if .upgradePath and (.upgradePath | length) > 0 then .upgradePath[]? | select(. != null) | . else "No fix available" end) + 
-              "\n- **More Info:** " + (.url // .link // "No additional info") + 
-              "\n"' snyk-results.json > temp_detailed.txt 2>/dev/null || echo "Error parsing detailed vulnerability information" > temp_detailed.txt
+            # Add detailed info for each vulnerability - simplified parsing
+            jq -r '
+              if .vulnerabilities and (.vulnerabilities | length) > 0 then
+                .vulnerabilities[] | 
+                "#### 🔴 " + (.title // .name // .id // "Unknown Vulnerability") + 
+                "\n- **Package:** " + (.packageName // .name // .package // "Unknown") + 
+                "\n- **Severity:** " + (.severity // "unknown") + 
+                "\n- **CVSS Score:** " + ((.cvssScore // .score // .cvss // "N/A") | tostring) + 
+                "\n- **Description:** " + (.description // .title // .summary // "No description available") + 
+                "\n- **Fix:** " + (if .upgradePath and (.upgradePath | length) > 0 then .upgradePath[]? | select(. != null) | . else "No fix available" end) + 
+                "\n- **More Info:** " + (.url // .link // "No additional info") + 
+                "\n"
+              else
+                "No detailed vulnerability information available"
+              end
+            ' snyk-results.json > temp_detailed.txt 2>/dev/null || echo "Error parsing detailed vulnerability information" > temp_detailed.txt
             
             COMMENT_BODY+=$(cat temp_detailed.txt 2>/dev/null || echo "")
             rm -f temp_detailed.txt
