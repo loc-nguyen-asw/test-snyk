@@ -116,7 +116,7 @@ jobs:
                         "externalRefs": [{
                           "referenceCategory": "PACKAGE_MANAGER",
                           "referenceType": "purl",
-                          "referenceLocator": "pkg:npm/" + $name + "@" + $version
+                          "referenceLocator": ("pkg:npm/" + $name + "@" + $version)
                         }]
                       }]
                     ' sbom.json > temp.json && mv temp.json sbom.json
@@ -159,7 +159,7 @@ jobs:
                         "externalRefs": [{
                           "referenceCategory": "PACKAGE_MANAGER",
                           "referenceType": "purl",
-                          "referenceLocator": "pkg:npm/" + $name + "@" + $version
+                          "referenceLocator": ("pkg:npm/" + $name + "@" + $version)
                         }]
                       }]
                     ' sbom.json > temp.json && mv temp.json sbom.json
@@ -332,12 +332,14 @@ jobs:
         with:
           sarif_file: snyk.sarif
 
-      - name: Upload SBOM XML as artifact
-        if: always() && steps.snyk-sbom.outcome == 'success'
+      - name: Upload SBOM files as artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-xml-${{ github.run_number }}
-          path: sbom.xml
+          name: sbom-files-${{ github.run_number }}
+          path: |
+            sbom.json
+            sbom.xml
           retention-days: 30
 
       - name: Parse Snyk results and create PR comment
