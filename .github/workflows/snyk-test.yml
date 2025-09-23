@@ -451,57 +451,6 @@ jobs:
             Great! No high-severity security vulnerabilities were detected in your dependencies.
             "
           fi
-
-          # Add SBOM information to comment
-          if [ -f sbom.json ]; then
-            SBOM_PACKAGE_COUNT=$(jq '.packages | length' sbom.json 2>/dev/null || echo "0")
-            COMMENT_BODY+="
-
-            ## 📦 Software Bill of Materials (SBOM)
-
-            **Total Packages:** $SBOM_PACKAGE_COUNT
-            **Format:** SPDX 2.3 (JSON + XML)
-            **Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-            ### 📋 SBOM Summary
-            "
-            
-            if [ "$SBOM_PACKAGE_COUNT" -gt 0 ]; then
-              COMMENT_BODY+="| Package | Version | Type |
-            |---------|---------|------|
-            "
-              
-              # Add package summary table
-              jq -r '.packages[]? | 
-                "| " + (.name // "Unknown") + 
-                " | " + (.versionInfo // "Unknown") + 
-                " | " + (if .externalRefs and (.externalRefs | length) > 0 then "Dependency" else "Unknown" end) + 
-                " |"' sbom.json >> temp_sbom_table.txt 2>/dev/null || echo "| Error parsing packages | | |" > temp_sbom_table.txt
-              
-              COMMENT_BODY+=$(cat temp_sbom_table.txt 2>/dev/null || echo "")
-              rm -f temp_sbom_table.txt
-              
-              COMMENT_BODY+="
-
-            ### 📄 SBOM Files
-            - **JSON Format**: Available in workflow artifacts
-            - **XML Format**: Available in workflow artifacts
-            - **Download**: Check the \`sbom-files-${{ github.run_number }}\` artifact
-            "
-            else
-              COMMENT_BODY+="No packages found in SBOM.
-            "
-            fi
-          else
-            COMMENT_BODY+="
-
-            ## 📦 Software Bill of Materials (SBOM)
-
-            **Status:** ❌ SBOM generation failed
-            **Reason:** No SBOM file was created
-            "
-          fi
-
           # Save comment to file for GitHub API
           echo "$COMMENT_BODY" > snyk_comment.md
 
@@ -555,19 +504,12 @@ jobs:
             const fs = require('fs');
 
             try {
-              console.log('Reading comment file...');
               const comment = fs.readFileSync('${{ steps.snyk-comment.outputs.comment_file }}', 'utf8');
-              console.log('Comment content length:', comment.length);
               
               let finalComment = comment;
               
               if (fs.existsSync('sbom.json') || fs.existsSync('sbom.xml')) {
-                console.log('SBOM files found, adding download link to comment...');
                 
-                const sbomSection = '\n\n## 📎 SBOM File Attachments\n\n';
-                finalComment += sbomSection;
-                
-                // Get package count for summary
                 let packageCount = 0;
                 if (fs.existsSync('sbom.json')) {
                   try {
@@ -579,7 +521,6 @@ jobs:
                   }
                 }
                 
-                // Get artifact ID for direct download
                 let artifactId = null;
                 try {
                   const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
@@ -603,10 +544,8 @@ jobs:
                 let downloadUrl;
                 
                 if (artifactId) {
-                  // Direct download URL with artifact ID
                   downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts/' + artifactId;
                 } else {
-                  // Fallback to artifacts page
                   downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts';
                 }
                 
@@ -621,16 +560,13 @@ jobs:
                 finalComment += '- **Generated**: ' + new Date().toISOString() + '\n';
               }
               
-              console.log('Creating new comment...');
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
                 body: finalComment
               });
-              console.log('Comment created successfully with embedded SBOM files');
             } catch (error) {
-              console.error('Error posting comment:', error);
               throw error;
             }
 
