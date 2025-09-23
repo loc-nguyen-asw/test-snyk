@@ -451,6 +451,56 @@ jobs:
             "
           fi
 
+          # Add SBOM information to comment
+          if [ -f sbom.json ]; then
+            SBOM_PACKAGE_COUNT=$(jq '.packages | length' sbom.json 2>/dev/null || echo "0")
+            COMMENT_BODY+="
+
+            ## 📦 Software Bill of Materials (SBOM)
+
+            **Total Packages:** $SBOM_PACKAGE_COUNT
+            **Format:** SPDX 2.3 (JSON + XML)
+            **Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+            ### 📋 SBOM Summary
+            "
+            
+            if [ "$SBOM_PACKAGE_COUNT" -gt 0 ]; then
+              COMMENT_BODY+="| Package | Version | Type |
+            |---------|---------|------|
+            "
+              
+              # Add package summary table
+              jq -r '.packages[]? | 
+                "| " + (.name // "Unknown") + 
+                " | " + (.versionInfo // "Unknown") + 
+                " | " + (if .externalRefs and (.externalRefs | length) > 0 then "Dependency" else "Unknown" end) + 
+                " |"' sbom.json >> temp_sbom_table.txt 2>/dev/null || echo "| Error parsing packages | | |" > temp_sbom_table.txt
+              
+              COMMENT_BODY+=$(cat temp_sbom_table.txt 2>/dev/null || echo "")
+              rm -f temp_sbom_table.txt
+              
+              COMMENT_BODY+="
+
+            ### 📄 SBOM Files
+            - **JSON Format**: Available in workflow artifacts
+            - **XML Format**: Available in workflow artifacts
+            - **Download**: Check the \`sbom-files-${{ github.run_number }}\` artifact
+            "
+            else
+              COMMENT_BODY+="No packages found in SBOM.
+            "
+            fi
+          else
+            COMMENT_BODY+="
+
+            ## 📦 Software Bill of Materials (SBOM)
+
+            **Status:** ❌ SBOM generation failed
+            **Reason:** No SBOM file was created
+            "
+          fi
+
           # Save comment to file for GitHub API
           echo "$COMMENT_BODY" > snyk_comment.md
 
