@@ -561,57 +561,35 @@ jobs:
               let finalComment = comment;
               
               if (fs.existsSync('sbom.json') || fs.existsSync('sbom.xml')) {
-                console.log('SBOM files found, adding SBOM summary to comment...');
+                console.log('SBOM files found, adding download link to comment...');
                 
                 const sbomSection = '\n\n## 📎 SBOM File Attachments\n\n';
                 finalComment += sbomSection;
                 
-                // Get package count and basic info
+                // Get package count for summary
                 let packageCount = 0;
-                let sbomInfo = '';
-                
                 if (fs.existsSync('sbom.json')) {
-                  const sbomJson = fs.readFileSync('sbom.json', 'utf8');
                   try {
+                    const sbomJson = fs.readFileSync('sbom.json', 'utf8');
                     const sbomData = JSON.parse(sbomJson);
                     packageCount = sbomData.packages ? sbomData.packages.length : 0;
-                    
-                    sbomInfo += '### 📄 SBOM JSON Summary:\n';
-                    sbomInfo += '```json\n';
-                    sbomInfo += JSON.stringify({
-                      spdxVersion: sbomData.spdxVersion,
-                      name: sbomData.name,
-                      packageCount: packageCount,
-                      packages: sbomData.packages ? sbomData.packages.slice(0, 5).map(pkg => ({
-                        name: pkg.name,
-                        version: pkg.versionInfo
-                      })) : []
-                    }, null, 2);
-                    if (packageCount > 5) {
-                      sbomInfo += '\n  // ... and ' + (packageCount - 5) + ' more packages';
-                    }
-                    sbomInfo += '\n```\n\n';
                   } catch (e) {
-                    sbomInfo += '### 📄 SBOM JSON:\n';
-                    sbomInfo += '```json\n' + sbomJson.substring(0, 2000) + (sbomJson.length > 2000 ? '\n// ... (truncated)' : '') + '\n```\n\n';
+                    packageCount = 0;
                   }
                 }
                 
-                if (fs.existsSync('sbom.xml')) {
-                  const sbomXml = fs.readFileSync('sbom.xml', 'utf8');
-                  sbomInfo += '### 📄 SBOM XML Preview:\n';
-                  sbomInfo += '```xml\n' + sbomXml.substring(0, 2000) + (sbomXml.length > 2000 ? '\n<!-- ... (truncated) -->' : '') + '\n```\n\n';
+                const downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId;
+                const artifactName = 'sbom-files-' + context.runNumber;
+                
+                finalComment += '### 📦 Download SBOM Files:\n';
+                finalComment += '[' + artifactName + '](' + downloadUrl + ')\n\n';
+                finalComment += '**Contains:**\n';
+                finalComment += '- `sbom.json` - SPDX 2.3 JSON format\n';
+                finalComment += '- `sbom.xml` - SPDX 2.3 XML format\n';
+                if (packageCount > 0) {
+                  finalComment += '- **Total Packages**: ' + packageCount + '\n';
                 }
-                
-                sbomInfo += '### 📋 File Information:\n';
-                sbomInfo += '- **Total Packages**: ' + packageCount + '\n';
-                sbomInfo += '- **JSON Format**: SPDX 2.3 JSON structure\n';
-                sbomInfo += '- **XML Format**: SPDX 2.3 XML structure\n';
-                sbomInfo += '- **Generated**: ' + new Date().toISOString() + '\n';
-                sbomInfo += '- **Source**: Generated from package.json dependencies\n';
-                sbomInfo += '- **Full Files**: Available in workflow artifacts (`sbom-files-' + context.runNumber + '`)\n';
-                
-                finalComment += sbomInfo;
+                finalComment += '- **Generated**: ' + new Date().toISOString() + '\n';
               }
               
               console.log('Creating new comment...');
