@@ -578,11 +578,11 @@ jobs:
                   }
                 }
                 
-                const downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId;
+                const downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts';
                 const artifactName = 'sbom-files-' + context.runNumber;
                 
                 finalComment += '### 📦 Download SBOM Files:\n';
-                finalComment += '[' + artifactName + '](' + downloadUrl + ')\n\n';
+                finalComment += '[📥 Download ' + artifactName + '](' + downloadUrl + ')\n\n';
                 finalComment += '**Contains:**\n';
                 finalComment += '- `sbom.json` - SPDX 2.3 JSON format\n';
                 finalComment += '- `sbom.xml` - SPDX 2.3 XML format\n';
