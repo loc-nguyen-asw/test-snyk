@@ -523,21 +523,21 @@ jobs:
         id: upload-sbom
         run: |
           echo "📤 Uploading SBOM files to GitHub..."
-          
+
           # Create a temporary directory for uploads
           mkdir -p sbom-uploads
-          
+
           # Copy SBOM files to upload directory
           if [ -f sbom.json ]; then
             cp sbom.json sbom-uploads/
             echo "✅ sbom.json copied for upload"
           fi
-          
+
           if [ -f sbom.xml ]; then
             cp sbom.xml sbom-uploads/
             echo "✅ sbom.xml copied for upload"
           fi
-          
+
           # Create a zip file with both SBOM files
           if [ -f sbom.json ] || [ -f sbom.xml ]; then
             cd sbom-uploads
@@ -552,26 +552,18 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const path = require('path');
-            
+
             try {
               console.log('Reading comment file...');
               const comment = fs.readFileSync('${{ steps.snyk-comment.outputs.comment_file }}', 'utf8');
               console.log('Comment content length:', comment.length);
               
-              // Check if SBOM files exist and add download links
               let finalComment = comment;
               
               if (fs.existsSync('sbom.json') || fs.existsSync('sbom.xml')) {
                 console.log('SBOM files found, adding download section...');
                 
-                const sbomSection = `
-
-## 📎 SBOM File Attachments
-
-### Direct Downloads:
-`;
-                
+                const sbomSection = '\n\n## 📎 SBOM File Attachments\n\n### Direct Downloads:\n';
                 let downloadLinks = '';
                 
                 if (fs.existsSync('sbom.json')) {
@@ -582,7 +574,7 @@ jobs:
                     content: Buffer.from(sbomJson).toString('base64'),
                     encoding: 'base64'
                   });
-                  downloadLinks += `- [📄 Download SBOM JSON](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${jsonBlob.data.sha}/sbom.json)\n`;
+                  downloadLinks += '- [📄 Download SBOM JSON](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/' + jsonBlob.data.sha + '/sbom.json)\n';
                 }
                 
                 if (fs.existsSync('sbom.xml')) {
@@ -593,7 +585,7 @@ jobs:
                     content: Buffer.from(sbomXml).toString('base64'),
                     encoding: 'base64'
                   });
-                  downloadLinks += `- [📄 Download SBOM XML](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${xmlBlob.data.sha}/sbom.xml)\n`;
+                  downloadLinks += '- [📄 Download SBOM XML](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/' + xmlBlob.data.sha + '/sbom.xml)\n';
                 }
                 
                 if (fs.existsSync('sbom-files.zip')) {
@@ -604,14 +596,13 @@ jobs:
                     content: Buffer.from(zipFile).toString('base64'),
                     encoding: 'base64'
                   });
-                  downloadLinks += `- [📦 Download All SBOM Files (ZIP)](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${zipBlob.data.sha}/sbom-files.zip)\n`;
+                  downloadLinks += '- [📦 Download All SBOM Files (ZIP)](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/' + zipBlob.data.sha + '/sbom-files.zip)\n';
                 }
                 
                 finalComment += sbomSection + downloadLinks;
               }
               
               console.log('Creating new comment...');
-              // Always create new comment
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
