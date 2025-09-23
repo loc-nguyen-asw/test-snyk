@@ -563,43 +563,29 @@ jobs:
               if (fs.existsSync('sbom.json') || fs.existsSync('sbom.xml')) {
                 console.log('SBOM files found, adding download section...');
                 
-                const sbomSection = '\n\n## 📎 SBOM File Attachments\n\n### Direct Downloads:\n';
-                let downloadLinks = '';
+                const sbomSection = '\n\n## 📎 SBOM File Attachments\n\n### Download Instructions:\n';
+                let downloadInfo = '';
                 
                 if (fs.existsSync('sbom.json')) {
                   const sbomJson = fs.readFileSync('sbom.json', 'utf8');
-                  const jsonBlob = await github.rest.git.createBlob({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    content: Buffer.from(sbomJson).toString('base64'),
-                    encoding: 'base64'
-                  });
-                  downloadLinks += '- [📄 Download SBOM JSON](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/' + jsonBlob.data.sha + '/sbom.json)\n';
+                  downloadInfo += '- **SBOM JSON**: Available in workflow artifacts\n';
+                  downloadInfo += '  ```json\n' + sbomJson.substring(0, 500) + (sbomJson.length > 500 ? '...' : '') + '\n  ```\n\n';
                 }
                 
                 if (fs.existsSync('sbom.xml')) {
                   const sbomXml = fs.readFileSync('sbom.xml', 'utf8');
-                  const xmlBlob = await github.rest.git.createBlob({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    content: Buffer.from(sbomXml).toString('base64'),
-                    encoding: 'base64'
-                  });
-                  downloadLinks += '- [📄 Download SBOM XML](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/' + xmlBlob.data.sha + '/sbom.xml)\n';
+                  downloadInfo += '- **SBOM XML**: Available in workflow artifacts\n';
+                  downloadInfo += '  ```xml\n' + sbomXml.substring(0, 500) + (sbomXml.length > 500 ? '...' : '') + '\n  ```\n\n';
                 }
                 
-                if (fs.existsSync('sbom-files.zip')) {
-                  const zipFile = fs.readFileSync('sbom-files.zip');
-                  const zipBlob = await github.rest.git.createBlob({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    content: Buffer.from(zipFile).toString('base64'),
-                    encoding: 'base64'
-                  });
-                  downloadLinks += '- [📦 Download All SBOM Files (ZIP)](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/' + zipBlob.data.sha + '/sbom-files.zip)\n';
-                }
+                downloadInfo += '### 📦 How to Download:\n';
+                downloadInfo += '1. Go to the **Actions** tab in this repository\n';
+                downloadInfo += '2. Click on the latest **Snyk Security Test** workflow run\n';
+                downloadInfo += '3. Scroll down to the **Artifacts** section\n';
+                downloadInfo += '4. Download the `sbom-files-' + context.runNumber + '` artifact\n';
+                downloadInfo += '5. Extract the ZIP file to get both JSON and XML formats\n';
                 
-                finalComment += sbomSection + downloadLinks;
+                finalComment += sbomSection + downloadInfo;
               }
               
               console.log('Creating new comment...');
@@ -609,7 +595,7 @@ jobs:
                 issue_number: context.issue.number,
                 body: finalComment
               });
-              console.log('Comment created successfully with SBOM file links');
+              console.log('Comment created successfully with SBOM information');
             } catch (error) {
               console.error('Error posting comment:', error);
               throw error;
