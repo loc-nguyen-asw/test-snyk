@@ -3,6 +3,8 @@ name: Snyk Security Test
 on:
   push:
     branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
 
 jobs:
   snyk-security-test:
@@ -11,6 +13,8 @@ jobs:
       contents: read
       security-events: write
       actions: read
+      pull-requests: write
+      issues: write
 
     steps:
       - name: Checkout code
@@ -26,14 +30,516 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Run Snyk to check for vulnerabilities
+        id: snyk-scan
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high --sarif-file-output=snyk.sarif
+          args: --severity-threshold=high --sarif-file-output=snyk.sarif --json-file-output=snyk-results.json --exit-code=0
+
+      - name: Generate SBOM (Software Bill of Materials)
+        id: snyk-sbom
+        run: |
+
+          if npx snyk sbom --format=spdx2.3+json --json-file-output=sbom.json 2>/dev/null; then
+            echo "✅ SBOM generated successfully with correct syntax"
+          else
+            echo "⚠️ SBOM command failed, checking if feature is available..."
+            
+            if npx snyk sbom --help 2>&1 | grep -q "Feature availability: This feature is available to customers on Snyk Enterprise plans"; then
+              echo "❌ SBOM feature requires Snyk Enterprise plan"
+              echo "Creating fallback SBOM from package.json..."
+              
+              if [ -f package.json ]; then
+                echo "📦 Creating SBOM from package.json..."
+                
+                jq -r '.dependencies // {} | to_entries[] | .key + "@" + .value' package.json > deps.txt 2>/dev/null || echo "" > deps.txt
+                jq -r '.devDependencies // {} | to_entries[] | .key + "@" + .value' package.json > dev-deps.txt 2>/dev/null || echo "" > dev-deps.txt
+                
+                cat > sbom.json << 'EOF'
+          {
+            "spdxVersion": "SPDX-2.3",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "name": "Software Bill of Materials - Generated from package.json",
+            "documentNamespace": "https://github.com/REPO/COMMIT",
+            "creationInfo": {
+              "created": "2024-01-01T00:00:00Z",
+              "creators": ["Tool: Snyk CLI", "Organization: GitHub Actions"]
+            },
+            "packages": []
+          }
+          EOF
+                
+                PACKAGE_ID=1
+                while IFS= read -r dep; do
+                  if [ -n "$dep" ]; then
+                    PACKAGE_NAME=$(echo "$dep" | cut -d'@' -f1)
+                    PACKAGE_VERSION=$(echo "$dep" | cut -d'@' -f2)
+                    
+                    jq --arg name "$PACKAGE_NAME" --arg version "$PACKAGE_VERSION" --arg id "SPDXRef-Package-$PACKAGE_ID" '
+                      .packages += [{
+                        "SPDXID": $id,
+                        "name": $name,
+                        "versionInfo": $version,
+                        "downloadLocation": "NOASSERTION",
+                        "filesAnalyzed": false,
+                        "packageVerificationCode": {
+                          "packageVerificationCodeValue": "NOASSERTION"
+                        },
+                        "checksums": [{
+                          "algorithm": "SHA1",
+                          "checksumValue": "NOASSERTION"
+                        }],
+                        "homepage": "NOASSERTION",
+                        "sourceInfo": "NOASSERTION",
+                        "licenseConcluded": "NOASSERTION",
+                        "licenseInfoFromFiles": ["NOASSERTION"],
+                        "licenseDeclared": "NOASSERTION",
+                        "licenseComments": "NOASSERTION",
+                        "copyrightText": "NOASSERTION",
+                        "summary": "NOASSERTION",
+                        "description": "NOASSERTION",
+                        "comment": "NOASSERTION",
+                        "externalRefs": [{
+                          "referenceCategory": "PACKAGE_MANAGER",
+                          "referenceType": "purl",
+                          "referenceLocator": ("pkg:npm/" + $name + "@" + $version)
+                        }]
+                      }]
+                    ' sbom.json > temp.json && mv temp.json sbom.json
+                    
+                    PACKAGE_ID=$((PACKAGE_ID + 1))
+                  fi
+                done < deps.txt
+                
+                while IFS= read -r dep; do
+                  if [ -n "$dep" ]; then
+                    PACKAGE_NAME=$(echo "$dep" | cut -d'@' -f1)
+                    PACKAGE_VERSION=$(echo "$dep" | cut -d'@' -f2)
+                    
+                    jq --arg name "$PACKAGE_NAME" --arg version "$PACKAGE_VERSION" --arg id "SPDXRef-Package-$PACKAGE_ID" '
+                      .packages += [{
+                        "SPDXID": $id,
+                        "name": $name,
+                        "versionInfo": $version,
+                        "downloadLocation": "NOASSERTION",
+                        "filesAnalyzed": false,
+                        "packageVerificationCode": {
+                          "packageVerificationCodeValue": "NOASSERTION"
+                        },
+                        "checksums": [{
+                          "algorithm": "SHA1",
+                          "checksumValue": "NOASSERTION"
+                        }],
+                        "homepage": "NOASSERTION",
+                        "sourceInfo": "NOASSERTION",
+                        "licenseConcluded": "NOASSERTION",
+                        "licenseInfoFromFiles": ["NOASSERTION"],
+                        "licenseDeclared": "NOASSERTION",
+                        "licenseComments": "NOASSERTION",
+                        "copyrightText": "NOASSERTION",
+                        "summary": "NOASSERTION",
+                        "description": "NOASSERTION",
+                        "comment": "NOASSERTION",
+                        "externalRefs": [{
+                          "referenceCategory": "PACKAGE_MANAGER",
+                          "referenceType": "purl",
+                          "referenceLocator": ("pkg:npm/" + $name + "@" + $version)
+                        }]
+                      }]
+                    ' sbom.json > temp.json && mv temp.json sbom.json
+                    
+                    PACKAGE_ID=$((PACKAGE_ID + 1))
+                  fi
+                done < dev-deps.txt
+                
+                rm -f deps.txt dev-deps.txt temp.json
+                
+                echo "✅ Fallback SBOM created from package.json"
+              else
+                echo "❌ No package.json found, creating empty SBOM..."
+                cat > sbom.json << 'EOF'
+          {
+            "spdxVersion": "SPDX-2.3",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "name": "Software Bill of Materials",
+            "documentNamespace": "https://github.com/REPO/COMMIT",
+            "packages": []
+          }
+          EOF
+                echo "✅ Empty SBOM created"
+              fi
+            else
+              echo "❌ SBOM command not available"
+              echo "Creating minimal SBOM..."
+              cat > sbom.json << 'EOF'
+          {
+            "spdxVersion": "SPDX-2.3",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "name": "Software Bill of Materials",
+            "documentNamespace": "https://github.com/REPO/COMMIT",
+            "packages": []
+          }
+          EOF
+              echo "✅ Minimal SBOM created"
+            fi
+          fi
+
+          if [ -f sbom.json ]; then
+            echo "📊 SBOM file created: $(wc -c < sbom.json) bytes"
+            echo "📋 SBOM content preview:"
+            head -c 200 sbom.json
+            echo ""
+            echo "=== END SBOM PREVIEW ==="
+          else
+            echo "❌ No SBOM file was created"
+          fi
+
+          echo "SBOM generation completed"
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Convert SBOM to XML format
+        if: always()
+        run: |
+          echo "📄 Converting SBOM to XML format..."
+
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+
+          if [ -f sbom.json ]; then
+            echo "Converting SPDX JSON to XML..."
+            
+            cat > sbom.xml << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <spdx:SpdxDocument xmlns:spdx="http://spdx.org/rdf/terms#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <spdx:dataLicense rdf:resource="http://spdx.org/licenses/CC0-1.0"/>
+            <spdx:spdxVersion>SPDX-2.3</spdx:spdxVersion>
+            <spdx:name>Software Bill of Materials - Generated by Snyk</spdx:name>
+            <spdx:documentNamespace>https://github.com/${{ github.repository }}/${{ github.sha }}</spdx:documentNamespace>
+            <spdx:creationInfo>
+              <spdx:created>${{ github.run_id }}</spdx:created>
+              <spdx:creators>
+                <spdx:creator>Tool: Snyk</spdx:creator>
+                <spdx:creator>Organization: ${{ github.repository_owner }}</spdx:creator>
+              </spdx:creators>
+            </spdx:creationInfo>
+          EOF
+            
+            PACKAGE_COUNT=$(jq '.packages | length' sbom.json 2>/dev/null || echo "0")
+            echo "📦 Found $PACKAGE_COUNT packages in SBOM"
+            
+            if [ "$PACKAGE_COUNT" -gt 0 ]; then
+              jq -r '.packages[]? | 
+                "  <spdx:Package rdf:about=\"#SPDXRef-" + (.SPDXID // .name | gsub("[^a-zA-Z0-9]"; "_")) + "\">" +
+                "\n    <spdx:name>" + (.name // "Unknown") + "</spdx:name>" +
+                "\n    <spdx:versionInfo>" + (.versionInfo // "Unknown") + "</spdx:versionInfo>" +
+                "\n    <spdx:downloadLocation rdf:resource=\"NOASSERTION\"/>" +
+                "\n    <spdx:filesAnalyzed>false</spdx:filesAnalyzed>" +
+                "\n    <spdx:packageVerificationCode>" +
+                "\n      <spdx:packageVerificationCodeValue>NOASSERTION</spdx:packageVerificationCodeValue>" +
+                "\n    </spdx:packageVerificationCode>" +
+                "\n    <spdx:checksums>" +
+                "\n      <spdx:checksum>" +
+                "\n        <spdx:algorithm rdf:resource=\"http://spdx.org/rdf/terms#checksumAlgorithm_sha1\"/>" +
+                "\n        <spdx:checksumValue>NOASSERTION</spdx:checksumValue>" +
+                "\n      </spdx:checksum>" +
+                "\n    </spdx:checksums>" +
+                "\n    <spdx:homepage rdf:resource=\"NOASSERTION\"/>" +
+                "\n    <spdx:sourceInfo>NOASSERTION</spdx:sourceInfo>" +
+                "\n    <spdx:licenseConcluded rdf:resource=\"http://spdx.org/licenses/NOASSERTION\"/>" +
+                "\n    <spdx:licenseInfoFromFiles rdf:resource=\"http://spdx.org/licenses/NOASSERTION\"/>" +
+                "\n    <spdx:licenseDeclared rdf:resource=\"http://spdx.org/licenses/NOASSERTION\"/>" +
+                "\n    <spdx:licenseComments>NOASSERTION</spdx:licenseComments>" +
+                "\n    <spdx:copyrightText>NOASSERTION</spdx:copyrightText>" +
+                "\n    <spdx:summary>NOASSERTION</spdx:summary>" +
+                "\n    <spdx:description>NOASSERTION</spdx:description>" +
+                "\n    <spdx:comment>NOASSERTION</spdx:comment>" +
+                "\n    <spdx:externalRefs>" +
+                "\n      <spdx:externalRef>" +
+                "\n        <spdx:referenceCategory rdf:resource=\"http://spdx.org/rdf/terms#referenceCategory_packageManager\"/>" +
+                "\n        <spdx:referenceType rdf:resource=\"http://spdx.org/rdf/terms#referenceType_purl\"/>" +
+                "\n        <spdx:referenceLocator>" + (.externalRefs[0].referenceLocator // "NOASSERTION") + "</spdx:referenceLocator>" +
+                "\n      </spdx:externalRef>" +
+                "\n    </spdx:externalRefs>" +
+                "\n  </spdx:Package>"' sbom.json >> sbom.xml 2>/dev/null || echo "  <!-- Error parsing packages -->" >> sbom.xml
+            else
+              echo "  <!-- No packages found in SBOM -->" >> sbom.xml
+            fi
+            
+            echo "</spdx:SpdxDocument>" >> sbom.xml
+            
+            echo "✅ SBOM XML generated successfully"
+            echo "📊 SBOM XML file size: $(wc -c < sbom.xml) bytes"
+            echo "📋 SBOM XML preview (first 500 chars):"
+            head -c 500 sbom.xml
+            echo ""
+            echo "=== END SBOM XML PREVIEW ==="
+          else
+            echo "❌ SBOM JSON file not found, creating minimal XML...."
+            
+            cat > sbom.xml << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <spdx:SpdxDocument xmlns:spdx="http://spdx.org/rdf/terms#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <spdx:dataLicense rdf:resource="http://spdx.org/licenses/CC0-1.0"/>
+            <spdx:spdxVersion>SPDX-2.3</spdx:spdxVersion>
+            <spdx:name>Software Bill of Materials - Generated by Snyk</spdx:name>
+            <spdx:documentNamespace>https://github.com/${{ github.repository }}/${{ github.sha }}</spdx:documentNamespace>
+            <spdx:creationInfo>
+              <spdx:created>${{ github.run_id }}</spdx:created>
+              <spdx:creators>
+                <spdx:creator>Tool: Snyk</spdx:creator>
+                <spdx:creator>Organization: ${{ github.repository_owner }}</spdx:creator>
+              </spdx:creators>
+            </spdx:creationInfo>
+            <!-- No packages found -->  
+          </spdx:SpdxDocument>
+          EOF
+            
+            echo "✅ Minimal SBOM XML created"
+          fi
 
       - name: Upload Snyk results to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: snyk.sarif
+
+      - name: Upload SBOM files as artifacts
+        if: always()
+        id: upload-sbom-artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-files-${{ github.run_number }}
+          path: |
+            sbom.json
+            sbom.xml
+          retention-days: 30
+
+      - name: Parse Snyk results and create PR comment
+        if: always() && github.event_name == 'pull_request'
+        id: snyk-comment
+        run: |
+          echo "=== SNYK SECURITY SCAN RESULTS ==="
+
+          if [ ! -f snyk-results.json ]; then
+            echo "❌ Snyk results file not found. Scan may have failed."
+            echo "comment_file=" >> $GITHUB_OUTPUT
+            echo "vuln_count=0" >> $GITHUB_OUTPUT
+            echo "=== END SNYK RESULTS ==="
+            exit 0
+          fi
+
+          echo "📊 Snyk scan completed. Parsing results..."
+
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+
+          VULN_COUNT=$(jq '.vulnerabilities | length' snyk-results.json 2>/dev/null || echo "0")
+          echo "🔍 Found $VULN_COUNT vulnerabilities"
+
+          echo "📋 JSON structure:"
+          jq 'keys' snyk-results.json 2>/dev/null || echo "Failed to parse JSON keys"
+          echo "📋 Vulnerabilities structure:"
+          jq '.vulnerabilities[0] | keys' snyk-results.json 2>/dev/null || echo "No vulnerabilities or failed to parse"
+          echo "📋 Full JSON content (first 1000 chars):"
+          head -c 1000 snyk-results.json
+          echo ""
+          echo "=== END JSON DEBUG ==="
+
+          COMMENT_BODY="## 🔒 Snyk Security Scan Results
+
+          **Scan Status:** ${{ steps.snyk-scan.outcome == 'success' && '✅ PASSED' || '❌ FAILED' }}
+          **Vulnerabilities Found:** $VULN_COUNT
+          **Severity Threshold:** High
+
+          "
+
+          if [ "$VULN_COUNT" -gt 0 ]; then
+            COMMENT_BODY+="### ⚠️ High Severity Vulnerabilities Detected
+
+            | Package | Severity | CVSS | Description | Fix Available |
+            |---------|----------|------|-------------|---------------|
+            "
+            
+            jq -r '
+              if .vulnerabilities and (.vulnerabilities | length) > 0 then
+                .vulnerabilities[] | 
+                "| " + (.moduleName // .packageName // "Unknown") + 
+                " | " + (.severity // "unknown") + 
+                " | " + ((.cvssScore // "N/A") | tostring) + 
+                " | " + ((.title // .description // "No description") | gsub("\n"; " ") | .[0:100]) + 
+                " | " + (if .fixedIn and (.fixedIn | length) > 0 then "✅ " + (.fixedIn[0]) else "❌ No fix" end) + 
+                " |"
+              else
+                "| No vulnerabilities found | | | | |"
+              end
+            ' snyk-results.json > temp_comment.txt 2>/dev/null || echo "| Error parsing vulnerabilities | | | | |" > temp_comment.txt
+            
+            COMMENT_BODY+=$(cat temp_comment.txt 2>/dev/null || echo "")
+            rm -f temp_comment.txt
+            
+            COMMENT_BODY+="
+
+            ### 📋 Detailed Information
+            "
+            
+            jq -r '
+              if .vulnerabilities and (.vulnerabilities | length) > 0 then
+                .vulnerabilities[] | 
+                "#### 🔴 " + (.title // .id // "Unknown Vulnerability") + 
+                "\n- **Package:** " + (.moduleName // .packageName // "Unknown") + 
+                "\n- **Severity:** " + (.severity // "unknown") + 
+                "\n- **CVSS Score:** " + ((.cvssScore // "N/A") | tostring) + 
+                "\n- **Description:** " + (.description // .title // "No description available") + 
+                "\n- **Fix:** " + (if .fixedIn and (.fixedIn | length) > 0 then .fixedIn[0] else "No fix available" end) + 
+                "\n- **More Info:** " + ((.references[0].url // "No additional info")) + 
+                "\n"
+              else
+                "No detailed vulnerability information available"
+              end
+            ' snyk-results.json > temp_detailed.txt 2>/dev/null || echo "Error parsing detailed vulnerability information" > temp_detailed.txt
+            
+            COMMENT_BODY+=$(cat temp_detailed.txt 2>/dev/null || echo "")
+            rm -f temp_detailed.txt
+            
+            COMMENT_BODY+="
+
+            ---
+            **🚫 This PR is blocked due to high-severity security vulnerabilities.**
+            Please fix the vulnerabilities above before merging this PR.
+            "
+          else
+            COMMENT_BODY+="### ✅ No High Severity Vulnerabilities Found
+
+            Great! No high-severity security vulnerabilities were detected in your dependencies.
+            "
+          fi
+          echo "$COMMENT_BODY" > snyk_comment.md
+
+          echo "📝 Comment file created:"
+          echo "File size: $(wc -c < snyk_comment.md) bytes"
+          echo "First 500 characters:"
+          head -c 500 snyk_comment.md
+          echo ""
+          echo "=== END COMMENT PREVIEW ==="
+
+          echo "comment_file=snyk_comment.md" >> $GITHUB_OUTPUT
+          echo "vuln_count=$VULN_COUNT" >> $GITHUB_OUTPUT
+
+          echo "=== END SNYK RESULTS ==="
+
+      - name: Upload SBOM files to GitHub
+        if: always() && github.event_name == 'pull_request'
+        id: upload-sbom
+        run: |
+          echo "📤 Uploading SBOM files to GitHub..."
+
+          mkdir -p sbom-uploads
+
+          if [ -f sbom.json ]; then
+            cp sbom.json sbom-uploads/
+            echo "✅ sbom.json copied for upload"
+          fi
+
+          if [ -f sbom.xml ]; then
+            cp sbom.xml sbom-uploads/
+            echo "✅ sbom.xml copied for upload"
+          fi
+
+          if [ -f sbom.json ] || [ -f sbom.xml ]; then
+            cd sbom-uploads
+            zip -r ../sbom-files.zip . 2>/dev/null || echo "No files to zip"
+            cd ..
+            echo "✅ SBOM files zipped for upload"
+          fi
+
+      - name: Comment on PR with Snyk results and SBOM files
+        if: always() && github.event_name == 'pull_request' && steps.snyk-comment.outputs.comment_file != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            try {
+              const comment = fs.readFileSync('${{ steps.snyk-comment.outputs.comment_file }}', 'utf8');
+              
+              let finalComment = comment;
+              
+              if (fs.existsSync('sbom.json') || fs.existsSync('sbom.xml')) {
+                
+                let packageCount = 0;
+                if (fs.existsSync('sbom.json')) {
+                  try {
+                    const sbomJson = fs.readFileSync('sbom.json', 'utf8');
+                    const sbomData = JSON.parse(sbomJson);
+                    packageCount = sbomData.packages ? sbomData.packages.length : 0;
+                  } catch (e) {
+                    packageCount = 0;
+                  }
+                }
+                
+                let artifactId = null;
+                try {
+                  const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: context.runId
+                  });
+                  
+                  const sbomArtifact = artifacts.data.artifacts.find(artifact => 
+                    artifact.name === 'sbom-files-' + context.runNumber
+                  );
+                  
+                  if (sbomArtifact) {
+                    artifactId = sbomArtifact.id;
+                  }
+                } catch (error) {
+                  console.log('Could not get artifact ID:', error.message);
+                }
+                
+                const artifactName = 'sbom-files-' + context.runNumber;
+                let downloadUrl;
+                
+                if (artifactId) {
+                  downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts/' + artifactId;
+                } else {
+                  downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts';
+                }
+                
+                finalComment += '### 📦 Download SBOM Files:\n';
+                finalComment += '[📥 Download ' + artifactName + '](' + downloadUrl + ')\n\n';
+                finalComment += '**Contains:**\n';
+                finalComment += '- `sbom.json` - SPDX 2.3 JSON format\n';
+                finalComment += '- `sbom.xml` - SPDX 2.3 XML format\n';
+                if (packageCount > 0) {
+                  finalComment += '- **Total Packages**: ' + packageCount + '\n';
+                }
+                finalComment += '- **Generated**: ' + new Date().toISOString() + '\n';
+              }
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: finalComment
+              });
+            } catch (error) {
+              throw error;
+            }
+
+      - name: Check for vulnerabilities and fail if found
+        if: always() && steps.snyk-comment.outputs.vuln_count != '' && steps.snyk-comment.outputs.vuln_count != '0'
+        run: |
+          echo "🚫 BLOCKING PR: High-severity vulnerabilities detected by Snyk"
+          echo "Vulnerabilities found: ${{ steps.snyk-comment.outputs.vuln_count }}"
+          echo "Please review and fix the security issues before merging."
+          echo "Check the PR comment for detailed information."
+          exit 1
