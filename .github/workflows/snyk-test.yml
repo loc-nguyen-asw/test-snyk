@@ -334,6 +334,7 @@ jobs:
 
       - name: Upload SBOM files as artifacts
         if: always()
+        id: upload-sbom-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sbom-files-${{ github.run_number }}
@@ -578,8 +579,36 @@ jobs:
                   }
                 }
                 
-                const downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts';
+                // Get artifact ID for direct download
+                let artifactId = null;
+                try {
+                  const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: context.runId
+                  });
+                  
+                  const sbomArtifact = artifacts.data.artifacts.find(artifact => 
+                    artifact.name === 'sbom-files-' + context.runNumber
+                  );
+                  
+                  if (sbomArtifact) {
+                    artifactId = sbomArtifact.id;
+                  }
+                } catch (error) {
+                  console.log('Could not get artifact ID:', error.message);
+                }
+                
                 const artifactName = 'sbom-files-' + context.runNumber;
+                let downloadUrl;
+                
+                if (artifactId) {
+                  // Direct download URL with artifact ID
+                  downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts/' + artifactId;
+                } else {
+                  // Fallback to artifacts page
+                  downloadUrl = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId + '/artifacts';
+                }
                 
                 finalComment += '### 📦 Download SBOM Files:\n';
                 finalComment += '[📥 Download ' + artifactName + '](' + downloadUrl + ')\n\n';
