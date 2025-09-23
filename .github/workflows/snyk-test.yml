@@ -41,31 +41,22 @@ jobs:
       - name: Generate SBOM (Software Bill of Materials)
         id: snyk-sbom
         run: |
-          echo "🔍 Generating SBOM with Snyk..."
 
-          # Check if SBOM feature is available (requires Enterprise plan)
-          echo "Checking Snyk SBOM feature availability..."
-
-          # Try the correct command syntax
           if npx snyk sbom --format=spdx2.3+json --json-file-output=sbom.json 2>/dev/null; then
             echo "✅ SBOM generated successfully with correct syntax"
           else
             echo "⚠️ SBOM command failed, checking if feature is available..."
             
-            # Check if SBOM feature is available by running help
             if npx snyk sbom --help 2>&1 | grep -q "Feature availability: This feature is available to customers on Snyk Enterprise plans"; then
               echo "❌ SBOM feature requires Snyk Enterprise plan"
               echo "Creating fallback SBOM from package.json..."
               
-              # Create SBOM from package.json as fallback
               if [ -f package.json ]; then
                 echo "📦 Creating SBOM from package.json..."
                 
-                # Extract dependencies from package.json
                 jq -r '.dependencies // {} | to_entries[] | .key + "@" + .value' package.json > deps.txt 2>/dev/null || echo "" > deps.txt
                 jq -r '.devDependencies // {} | to_entries[] | .key + "@" + .value' package.json > dev-deps.txt 2>/dev/null || echo "" > dev-deps.txt
                 
-                # Create SPDX JSON format
                 cat > sbom.json << 'EOF'
           {
             "spdxVersion": "SPDX-2.3",
@@ -81,14 +72,12 @@ jobs:
           }
           EOF
                 
-                # Add packages from package.json
                 PACKAGE_ID=1
                 while IFS= read -r dep; do
                   if [ -n "$dep" ]; then
                     PACKAGE_NAME=$(echo "$dep" | cut -d'@' -f1)
                     PACKAGE_VERSION=$(echo "$dep" | cut -d'@' -f2)
                     
-                    # Add package to SBOM
                     jq --arg name "$PACKAGE_NAME" --arg version "$PACKAGE_VERSION" --arg id "SPDXRef-Package-$PACKAGE_ID" '
                       .packages += [{
                         "SPDXID": $id,
@@ -125,13 +114,11 @@ jobs:
                   fi
                 done < deps.txt
                 
-                # Add dev dependencies
                 while IFS= read -r dep; do
                   if [ -n "$dep" ]; then
                     PACKAGE_NAME=$(echo "$dep" | cut -d'@' -f1)
                     PACKAGE_VERSION=$(echo "$dep" | cut -d'@' -f2)
                     
-                    # Add dev package to SBOM
                     jq --arg name "$PACKAGE_NAME" --arg version "$PACKAGE_VERSION" --arg id "SPDXRef-Package-$PACKAGE_ID" '
                       .packages += [{
                         "SPDXID": $id,
@@ -168,7 +155,6 @@ jobs:
                   fi
                 done < dev-deps.txt
                 
-                # Clean up temp files
                 rm -f deps.txt dev-deps.txt temp.json
                 
                 echo "✅ Fallback SBOM created from package.json"
@@ -203,7 +189,6 @@ jobs:
             fi
           fi
 
-          # Check if file was created
           if [ -f sbom.json ]; then
             echo "📊 SBOM file created: $(wc -c < sbom.json) bytes"
             echo "📋 SBOM content preview:"
@@ -223,17 +208,14 @@ jobs:
         run: |
           echo "📄 Converting SBOM to XML format..."
 
-          # Check if jq is available
           if ! command -v jq &> /dev/null; then
             echo "Installing jq..."
             sudo apt-get update && sudo apt-get install -y jq
           fi
 
-          # Convert SPDX JSON to XML
           if [ -f sbom.json ]; then
             echo "Converting SPDX JSON to XML..."
             
-            # Create XML header
             cat > sbom.xml << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <spdx:SpdxDocument xmlns:spdx="http://spdx.org/rdf/terms#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -250,12 +232,10 @@ jobs:
             </spdx:creationInfo>
           EOF
             
-            # Check if packages exist in JSON
             PACKAGE_COUNT=$(jq '.packages | length' sbom.json 2>/dev/null || echo "0")
             echo "📦 Found $PACKAGE_COUNT packages in SBOM"
             
             if [ "$PACKAGE_COUNT" -gt 0 ]; then
-              # Add packages from SPDX JSON
               jq -r '.packages[]? | 
                 "  <spdx:Package rdf:about=\"#SPDXRef-" + (.SPDXID // .name | gsub("[^a-zA-Z0-9]"; "_")) + "\">" +
                 "\n    <spdx:name>" + (.name // "Unknown") + "</spdx:name>" +
@@ -293,7 +273,6 @@ jobs:
               echo "  <!-- No packages found in SBOM -->" >> sbom.xml
             fi
             
-            # Close XML document
             echo "</spdx:SpdxDocument>" >> sbom.xml
             
             echo "✅ SBOM XML generated successfully"
@@ -305,7 +284,6 @@ jobs:
           else
             echo "❌ SBOM JSON file not found, creating minimal XML...."
             
-            # Create minimal XML if no JSON
             cat > sbom.xml << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <spdx:SpdxDocument xmlns:spdx="http://spdx.org/rdf/terms#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -320,7 +298,7 @@ jobs:
                 <spdx:creator>Organization: ${{ github.repository_owner }}</spdx:creator>
               </spdx:creators>
             </spdx:creationInfo>
-            <!-- No packages found -->
+            <!-- No packages found -->  
           </spdx:SpdxDocument>
           EOF
             
@@ -349,7 +327,6 @@ jobs:
         run: |
           echo "=== SNYK SECURITY SCAN RESULTS ==="
 
-          # Check if results file exists
           if [ ! -f snyk-results.json ]; then
             echo "❌ Snyk results file not found. Scan may have failed."
             echo "comment_file=" >> $GITHUB_OUTPUT
@@ -360,17 +337,14 @@ jobs:
 
           echo "📊 Snyk scan completed. Parsing results..."
 
-          # Check if jq is available
           if ! command -v jq &> /dev/null; then
             echo "Installing jq..."
             sudo apt-get update && sudo apt-get install -y jq
           fi
 
-          # Check if vulnerabilities were found
           VULN_COUNT=$(jq '.vulnerabilities | length' snyk-results.json 2>/dev/null || echo "0")
           echo "🔍 Found $VULN_COUNT vulnerabilities"
 
-          # Debug: Show the JSON structure
           echo "📋 JSON structure:"
           jq 'keys' snyk-results.json 2>/dev/null || echo "Failed to parse JSON keys"
           echo "📋 Vulnerabilities structure:"
@@ -380,7 +354,6 @@ jobs:
           echo ""
           echo "=== END JSON DEBUG ==="
 
-          # Create PR comment content
           COMMENT_BODY="## 🔒 Snyk Security Scan Results
 
           **Scan Status:** ${{ steps.snyk-scan.outcome == 'success' && '✅ PASSED' || '❌ FAILED' }}
@@ -396,7 +369,6 @@ jobs:
             |---------|----------|------|-------------|---------------|
             "
             
-            # Add each vulnerability as a table row - using correct field names from Snyk API
             jq -r '
               if .vulnerabilities and (.vulnerabilities | length) > 0 then
                 .vulnerabilities[] | 
@@ -419,7 +391,6 @@ jobs:
             ### 📋 Detailed Information
             "
             
-            # Add detailed info for each vulnerability - using correct field names
             jq -r '
               if .vulnerabilities and (.vulnerabilities | length) > 0 then
                 .vulnerabilities[] | 
@@ -451,10 +422,8 @@ jobs:
             Great! No high-severity security vulnerabilities were detected in your dependencies.
             "
           fi
-          # Save comment to file for GitHub API
           echo "$COMMENT_BODY" > snyk_comment.md
 
-          # Debug: Show comment file content
           echo "📝 Comment file created:"
           echo "File size: $(wc -c < snyk_comment.md) bytes"
           echo "First 500 characters:"
@@ -462,7 +431,6 @@ jobs:
           echo ""
           echo "=== END COMMENT PREVIEW ==="
 
-          # Set output for next step
           echo "comment_file=snyk_comment.md" >> $GITHUB_OUTPUT
           echo "vuln_count=$VULN_COUNT" >> $GITHUB_OUTPUT
 
@@ -474,10 +442,8 @@ jobs:
         run: |
           echo "📤 Uploading SBOM files to GitHub..."
 
-          # Create a temporary directory for uploads
           mkdir -p sbom-uploads
 
-          # Copy SBOM files to upload directory
           if [ -f sbom.json ]; then
             cp sbom.json sbom-uploads/
             echo "✅ sbom.json copied for upload"
@@ -488,7 +454,6 @@ jobs:
             echo "✅ sbom.xml copied for upload"
           fi
 
-          # Create a zip file with both SBOM files
           if [ -f sbom.json ] || [ -f sbom.xml ]; then
             cd sbom-uploads
             zip -r ../sbom-files.zip . 2>/dev/null || echo "No files to zip"
